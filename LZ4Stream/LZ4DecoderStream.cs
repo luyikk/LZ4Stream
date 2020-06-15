@@ -84,7 +84,7 @@ namespace K4os.Compression.LZ4.Streams
 
         public override async Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
-			if (!EnsureFrame())
+			if (!await EnsureFrameAsync(cancellationToken))
 				return 0;
 
 			var read = 0;
@@ -100,9 +100,10 @@ namespace K4os.Compression.LZ4.Streams
 			return read;
 		}
 
-	
 
-        private bool EnsureFrame() => _decoder != null || ReadFrame();
+		private async ValueTask<bool> EnsureFrameAsync(CancellationToken cancellationToken) => _decoder != null || await ReadFrameAsync(cancellationToken);
+
+		private bool EnsureFrame() => _decoder != null || ReadFrame();
 
 		[SuppressMessage("ReSharper", "InconsistentNaming")]
 		private bool ReadFrame()
@@ -141,6 +142,63 @@ namespace K4os.Compression.LZ4.Streams
 
 			var actualHC = (byte) (XXH32.DigestOf(_buffer16, 0, _index16) >> 8);
 			var expectedHC = Peek8();
+
+			if (actualHC != expectedHC)
+				throw InvalidHeaderChecksum();
+
+			var blockSize = MaxBlockSize(blockSizeCode);
+
+			if (hasDictionary)
+				throw NotImplemented(
+					"Predefined dictionaries feature is not implemented"); // Write32(dictionaryId);
+
+			// ReSharper disable once ExpressionIsAlwaysNull
+			_frameInfo = new LZ4Descriptor(
+				contentLength, contentChecksum, blockChaining, blockChecksum, dictionaryId,
+				blockSize);
+			_decoder = _decoderFactory(_frameInfo);
+			_buffer = new byte[blockSize];
+
+			return true;
+		}
+
+		[SuppressMessage("ReSharper", "InconsistentNaming")]
+		private async ValueTask<bool> ReadFrameAsync(CancellationToken cancellationToken)
+		{
+			FlushPeek();
+
+			var magic = await TryPeek32Async(cancellationToken);
+
+			if (!magic.HasValue)
+				return false;
+
+			if (magic != 0x184D2204)
+				throw MagicNumberExpected();
+
+			FlushPeek();
+
+			var FLG_BD = await Peek16Async(cancellationToken);
+
+			var FLG = FLG_BD & 0xFF;
+			var BD = (FLG_BD >> 8) & 0xFF;
+
+			var version = (FLG >> 6) & 0x11;
+
+			if (version != 1)
+				throw UnknownFrameVersion(version);
+
+			var blockChaining = ((FLG >> 5) & 0x01) == 0;
+			var blockChecksum = ((FLG >> 4) & 0x01) != 0;
+			var hasContentSize = ((FLG >> 3) & 0x01) != 0;
+			var contentChecksum = ((FLG >> 2) & 0x01) != 0;
+			var hasDictionary = (FLG & 0x01) != 0;
+			var blockSizeCode = (BD >> 4) & 0x07;
+
+			var contentLength = hasContentSize ? (long?)await Peek64Async(cancellationToken) : null;
+			var dictionaryId = hasDictionary ? (uint?)await Peek32Async(cancellationToken) : null;
+
+			var actualHC = (byte)(XXH32.DigestOf(_buffer16, 0, _index16) >> 8);
+			var expectedHC = await Peek8Async(cancellationToken);
 
 			if (actualHC != expectedHC)
 				throw InvalidHeaderChecksum();
@@ -337,9 +395,23 @@ namespace K4os.Compression.LZ4.Streams
 			return BitConverter.ToUInt64(_buffer16, _index16 - sizeof(ulong));
 		}
 
+		private async ValueTask<ulong> Peek64Async(CancellationToken cancellationToken)
+		{
+			await PeekNAsync(sizeof(ulong), cancellationToken);
+			return BitConverter.ToUInt64(_buffer16, _index16 - sizeof(ulong));
+		}
+
 		private uint? TryPeek32()
 		{
 			if (!PeekN(sizeof(uint), true))
+				return null;
+
+			return BitConverter.ToUInt32(_buffer16, _index16 - sizeof(uint));
+		}
+
+		private async ValueTask<uint?> TryPeek32Async(CancellationToken cancellationToken)
+		{
+			if (!await PeekNAsync(sizeof(uint), cancellationToken,true))
 				return null;
 
 			return BitConverter.ToUInt32(_buffer16, _index16 - sizeof(uint));
@@ -363,9 +435,21 @@ namespace K4os.Compression.LZ4.Streams
 			return BitConverter.ToUInt16(_buffer16, _index16 - sizeof(ushort));
 		}
 
+		private async ValueTask<ushort> Peek16Async(CancellationToken cancellationToken)
+		{
+			await PeekNAsync(sizeof(ushort), cancellationToken);
+			return BitConverter.ToUInt16(_buffer16, _index16 - sizeof(ushort));
+		}
+
 		private byte Peek8()
 		{
 			PeekN(sizeof(byte));
+			return _buffer16[_index16 - 1];
+		}
+
+		private async ValueTask<byte> Peek8Async(CancellationToken cancellationToken)
+		{
+			await PeekNAsync(sizeof(byte),cancellationToken);
 			return _buffer16[_index16 - 1];
 		}
 

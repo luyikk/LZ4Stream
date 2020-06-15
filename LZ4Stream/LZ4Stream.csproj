@@ -10,6 +10,7 @@
     <Description>K4os.Compression.LZ4 true async version</Description>
     <PackageProjectUrl>https://github.com/luyikk/LZ4Stream</PackageProjectUrl>
     <PackageTags>LZ4</PackageTags>
+    <Version>1.0.1</Version>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">

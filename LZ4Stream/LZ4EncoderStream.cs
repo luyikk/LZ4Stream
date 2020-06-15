@@ -50,11 +50,22 @@ namespace K4os.Compression.LZ4.Streams
 		}
 
 		/// <inheritdoc />
-		public override void Flush() => _inner.Flush();
+		public override void Flush()
+		{
+            var action = _encoder.FlushAndEncode(
+                    _buffer, 0, _buffer.Length, true, out var encoded);
+            WriteBlock(encoded, action);
+            _inner.Flush();
+		}
 
 		/// <inheritdoc />
-		public override Task FlushAsync(CancellationToken cancellationToken) =>
-			_inner.FlushAsync(cancellationToken);
+		public override async Task FlushAsync(CancellationToken cancellationToken)
+		{
+			var action = _encoder.FlushAndEncode(
+				  _buffer, 0, _buffer.Length, true, out var encoded);
+			await WriteBlockAsync(encoded, action, cancellationToken);
+			await _inner.FlushAsync(cancellationToken);
+		}
 
 		#if NETSTANDARD1_6
 		/// <summary>Closes stream.</summary>
@@ -252,9 +263,9 @@ namespace K4os.Compression.LZ4.Streams
 				return;
 
 			Stash32((uint)length | (compressed ? 0 : 0x80000000));
-			FlushStash();
+			await FlushStashAsync(cancellationToken);
 
-			await _inner.WriteAsync(_buffer, 0, length);
+			await _inner.WriteAsync(_buffer, 0, length, cancellationToken);
 
 			if (_descriptor.BlockChecksum)
 				throw NotImplemented("BlockChecksum");
@@ -316,6 +327,13 @@ namespace K4os.Compression.LZ4.Streams
 		{
 			if (_index16 > 0)
 				_inner.Write(_buffer16, 0, _index16);
+			_index16 = 0;
+		}
+
+		private async Task FlushStashAsync(CancellationToken cancellationToken)
+		{
+			if (_index16 > 0)
+				await _inner.WriteAsync(_buffer16, 0, _index16, cancellationToken);
 			_index16 = 0;
 		}
 
