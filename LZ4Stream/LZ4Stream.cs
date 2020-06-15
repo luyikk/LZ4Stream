@@ -3,7 +3,7 @@ using System.IO;
 using K4os.Compression.LZ4.Encoders;
 using K4os.Compression.LZ4.Internal;
 
-namespace K4os.Compression.LZ4.Streams
+namespace K4os.Compression.LZ4.AsyncStreams
 {
 	/// <summary>
 	/// Utility class with factory methods to create LZ4 compression and decompression streams.

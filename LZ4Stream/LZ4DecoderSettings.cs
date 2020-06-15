@@ -1,4 +1,4 @@
-namespace K4os.Compression.LZ4.Streams
+namespace K4os.Compression.LZ4.AsyncStreams
 {
 	/// <summary>
 	/// Decoder settings.
